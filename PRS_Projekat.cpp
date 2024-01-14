@@ -15,6 +15,11 @@ typedef struct
 
 } Point;
 
+typedef struct {
+	double dist;
+	int index;
+} MinDist;
+
 //Reads the image dimensions a x b pixels
 void readImageSize(FILE* ifp, int* K, int* a, int* b)
 {
@@ -38,22 +43,45 @@ void readPoints(FILE* ifp, Point* points, int num_points)
 	}
 }
 
-//Initialize random points as assumed means
+////Initialize random points as assumed means
+//void initialize(Point* mean, int K, int num_points, Point* points)
+//{
+//	int i, a, p = 2;
+//	srand(time(NULL));
+//	for (i = 0;i < K;i++)
+//	{
+//		a = num_points / p;
+//
+//		mean[i]._r = points[a]._r;
+//		mean[i]._g = points[a]._g;
+//		mean[i]._b = points[a]._b;
+//		mean[i]._m = points[a]._m;
+//		mean[i]._n = points[a]._n;
+//		p++;
+//	}
+//}
+
 void initialize(Point* mean, int K, int num_points, Point* points)
 {
 	int i, a, p = 2;
-	srand(time(NULL));
-	for (i = 0;i < K;i++)
-	{
-		a = num_points / p;
+	unsigned int randVal;
 
-		mean[i]._r = points[a]._r;
-		mean[i]._g = points[a]._g;
-		mean[i]._b = points[a]._b;
-		mean[i]._m = points[a]._m;
-		mean[i]._n = points[a]._n;
-		p++;
-	}
+	#pragma omp parallel private(i, a, randVal)
+		{
+	#pragma omp for
+			for (i = 0; i < K; i++)
+			{
+				// Generisanje slučajnog broja uz pomoć rand_s
+				rand_s(&randVal);
+				a = randVal % num_points;
+
+				mean[i]._r = points[a]._r;
+				mean[i]._g = points[a]._g;
+				mean[i]._b = points[a]._b;
+				mean[i]._m = points[a]._m;
+				mean[i]._n = points[a]._n;
+			}
+		}
 }
 
 //All points having no clusters
@@ -72,24 +100,62 @@ double calculateDistance(Point point1, Point point2)
 	return sqrt((pow((point1._r - point2._r), 2) + pow((point1._g - point2._g), 2) + pow((point1._b - point2._b), 2) + pow((point1._m - point2._m), 2) + pow((point1._n - point2._n), 2)));
 }
 
+//double calculateDistance(Point point1, Point point2) {
+//	double dr = point1._r - point2._r;
+//	double dg = point1._g - point2._g;
+//	double db = point1._b - point2._b;
+//	double dm = point1._m - point2._m;
+//	double dn = point1._n - point2._n;
+//
+//	return sqrt(dr * dr + dg * dg + db * db + dm * dm + dn * dn);
+//}
+
+
 //to calculate which cluster is the point belonging to.
-int pointsCluster(Point point, Point* mean, int K)
-{
-	int parent = 0;
-	double dist = 0;
-	double minDist = calculateDistance(point, mean[0]);
+//int pointsCluster(Point point, Point* mean, int K)
+//{
+//	int parent = 0;
+//	double dist = 0;
+//	double minDist = calculateDistance(point, mean[0]);
+//	int i;
+//	for (i = 1;i < K;i++)
+//	{
+//		dist = calculateDistance(point, mean[i]);
+//		if (minDist >= dist)
+//		{
+//			parent = i;
+//			minDist = dist;
+//		}
+//	}
+//	return parent;
+//}
+
+int pointsCluster(Point point, Point* mean, int K) {
+	MinDist minDist = { calculateDistance(point, mean[0]), 0 };
 	int i;
-	for (i = 1;i < K;i++)
-	{
-		dist = calculateDistance(point, mean[i]);
-		if (minDist >= dist)
+
+	#pragma omp parallel private(i)
 		{
-			parent = i;
-			minDist = dist;
+			MinDist localMinDist = minDist;
+			#pragma omp for nowait
+				for (i = 1; i < K; i++) {
+					double dist = calculateDistance(point, mean[i]);
+					if (dist < localMinDist.dist) {
+						localMinDist.dist = dist;
+						localMinDist.index = i;
+					}
+				}
+			#pragma omp critical
+				{
+					if (localMinDist.dist < minDist.dist) {
+						minDist = localMinDist;
+					}
+				}
 		}
-	}
-	return parent;
+
+	return minDist.index;
 }
+
 
 //calculate new mean
 //void calcNewMean(Point* points, int* cluster, Point* mean, int K, int num_points)
@@ -144,110 +210,87 @@ int pointsCluster(Point point, Point* mean, int K)
 //	}
 //}
 
-//void calcNewMean(Point* points, int* cluster, Point* mean, int K, int num_points) {
-//	// Alokacija memorije za globalne nizove za nove centre i broja članova klastera
-//	Point* newMeanTotal = calloc(K, sizeof(Point));
-//	int* membersTotal = calloc(K, sizeof(int));
-//
-//	#pragma omp parallel
-//	{
-//		// Lokalne kopije nizova za svaku nit
-//		Point* newMeanLocal = calloc(K, sizeof(Point));
-//		int* membersLocal = calloc(K, sizeof(int));
-//		int i;
-//
-//		// Paralelno ažuriranje lokalnih nizova
-//		#pragma omp for
-//		for (i = 0; i < num_points; i++) {
-//			int clusterIdx = cluster[i];
-//			membersLocal[clusterIdx]++;
-//			newMeanLocal[clusterIdx]._r += points[i]._r;
-//			newMeanLocal[clusterIdx]._g += points[i]._g;
-//			newMeanLocal[clusterIdx]._b += points[i]._b;
-//			newMeanLocal[clusterIdx]._m += points[i]._m;
-//			newMeanLocal[clusterIdx]._n += points[i]._n;
-//		}
-//
-//		// Kombinovanje lokalnih nizova u globalne nizove
-//		#pragma omp critical
-//		{
-//			for (i = 0; i < K; i++) {
-//				newMeanTotal[i]._r += newMeanLocal[i]._r;
-//				newMeanTotal[i]._g += newMeanLocal[i]._g;
-//				newMeanTotal[i]._b += newMeanLocal[i]._b;
-//				newMeanTotal[i]._m += newMeanLocal[i]._m;
-//				newMeanTotal[i]._n += newMeanLocal[i]._n;
-//				membersTotal[i] += membersLocal[i];
-//			}
-//		}
-//
-//		free(newMeanLocal);
-//		free(membersLocal);
-//	}
-//
-//	int i;
-//	// Izračunavanje konačnih vrednosti novih centara klastera
-//	for (i = 0; i < K; i++) {
-//		if (membersTotal[i] != 0) {
-//			mean[i]._r = newMeanTotal[i]._r / membersTotal[i];
-//			mean[i]._g = newMeanTotal[i]._g / membersTotal[i];
-//			mean[i]._b = newMeanTotal[i]._b / membersTotal[i];
-//			mean[i]._m = newMeanTotal[i]._m / membersTotal[i];
-//			mean[i]._n = newMeanTotal[i]._n / membersTotal[i];
-//		}
-//	}
-//
-//	free(newMeanTotal);
-//	free(membersTotal);
-//}
-
 void calcNewMean(Point* points, int* cluster, Point* mean, int K, int num_points) {
 	Point* newMeanTotal = (Point*)calloc(K, sizeof(Point));
 	int* membersTotal = (int*)calloc(K, sizeof(int));
+	int i;
 
-	// Inicijalizacija nizova
-	for (int i = 0; i < K; i++) {
-		newMeanTotal[i]._r = newMeanTotal[i]._g = newMeanTotal[i]._b = newMeanTotal[i]._m = newMeanTotal[i]._n = 0;
-		membersTotal[i] = 0;
-	}
+	// Paralelizacija akumulacije sume i brojanja članova
+	#pragma omp parallel private(i)
+		{
+			Point* localMean = (Point*)calloc(K, sizeof(Point));
+			int* localMembers = (int*)calloc(K, sizeof(int));
 
-	// Paralelno ažuriranje globalnih nizova koristeći redukciju
-#pragma omp parallel for reduction(newMeanTotal, membersTotal)
-	for (int i = 0; i < num_points; i++) {
-		int clusterIdx = cluster[i];
-		membersTotal[clusterIdx]++;
-		newMeanTotal[clusterIdx]._r += points[i]._r;
-		newMeanTotal[clusterIdx]._g += points[i]._g;
-		newMeanTotal[clusterIdx]._b += points[i]._b;
-		newMeanTotal[clusterIdx]._m += points[i]._m;
-		newMeanTotal[clusterIdx]._n += points[i]._n;
-	}
+			// Paralelno sumiranje
+		#pragma omp for
+			for (i = 0; i < num_points; i++) {
+				int idx = cluster[i];
+				localMean[idx]._r += points[i]._r;
+				localMean[idx]._g += points[i]._g;
+				localMean[idx]._b += points[i]._b;
+				localMean[idx]._m += points[i]._m;
+				localMean[idx]._n += points[i]._n;
+				localMembers[idx]++;
+			}
 
-	// Izračunavanje konačnih vrednosti novih centara klastera
-	for (int i = 0; i < K; i++) {
-		if (membersTotal[i] != 0) {
-			mean[i]._r = newMeanTotal[i]._r / membersTotal[i];
-			mean[i]._g = newMeanTotal[i]._g / membersTotal[i];
-			mean[i]._b = newMeanTotal[i]._b / membersTotal[i];
-			mean[i]._m = newMeanTotal[i]._m / membersTotal[i];
-			mean[i]._n = newMeanTotal[i]._n / membersTotal[i];
+			// Kombinovanje rezultata iz svih niti
+		#pragma omp critical
+			{
+				for (int i = 0; i < K; i++) {
+					newMeanTotal[i]._r += localMean[i]._r;
+					newMeanTotal[i]._g += localMean[i]._g;
+					newMeanTotal[i]._b += localMean[i]._b;
+					newMeanTotal[i]._m += localMean[i]._m;
+					newMeanTotal[i]._n += localMean[i]._n;
+					membersTotal[i] += localMembers[i];
+				}
+			}
+
+			free(localMean);
+			free(localMembers);
 		}
-	}
+
+		// Izračunavanje novih srednjih vrednosti
+		for (int i = 0; i < K; i++) {
+			if (membersTotal[i] > 0) {
+				mean[i]._r = newMeanTotal[i]._r / membersTotal[i];
+				mean[i]._g = newMeanTotal[i]._g / membersTotal[i];
+				mean[i]._b = newMeanTotal[i]._b / membersTotal[i];
+				mean[i]._m = newMeanTotal[i]._m / membersTotal[i];
+				mean[i]._n = newMeanTotal[i]._n / membersTotal[i];
+			}
+		}
 
 	free(newMeanTotal);
 	free(membersTotal);
 }
 
+//int chkConvrg(int* before_clusters, int* after_cluster, int num_points, float tol)
+//{
+//	int i;
+//	tol = num_points * tol;
+//	for (i = 0;i < num_points;i++)
+//		if (abs(before_clusters[i] - after_cluster[i]) > tol)
+//			return -1;
+//	return 0;
+//}
 
-int chkConvrg(int* before_clusters, int* after_cluster, int num_points, float tol)
-{
+int chkConvrg(int* before_clusters, int* after_cluster, int num_points, float tol) {
 	int i;
+	int result = 0; // 0 za konvergenciju, 1 za nekonvergenciju
 	tol = num_points * tol;
-	for (i = 0;i < num_points;i++)
-		if (abs(before_clusters[i] - after_cluster[i]) > tol)
-			return -1;
-	return 0;
+
+	#pragma omp parallel for reduction(|:result)
+		for (i = 0; i < num_points; i++) {
+			if (abs(before_clusters[i] - after_cluster[i]) > tol) {
+				result = 1; // Ako postoji nekonvergencija, postavi na 1
+				// Ne možemo odmah prekinuti petlju, ali zabeležimo nekonvergenciju
+			}
+		}
+
+	return (result == 0) ? 0 : -1;
 }
+
 
 int main(int argc, char* argv[])
 {
@@ -306,9 +349,7 @@ int main(int argc, char* argv[])
 
 		omp_set_num_threads(thread_no);
 
-	#pragma omp parallel default(shared)
-
-		#pragma omp for 
+	#pragma omp parallel for default(shared) 
 
 		for (i = 0;i < num_points;i++)
 		{
