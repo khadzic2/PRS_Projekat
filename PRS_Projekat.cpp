@@ -74,7 +74,6 @@ void initialize(Point* mean, int K, int num_points, Point* points)
 				// Generisanje slučajnog broja uz pomoć rand_s
 				rand_s(&randVal);
 				a = randVal % num_points;
-
 				mean[i]._r = points[a]._r;
 				mean[i]._g = points[a]._g;
 				mean[i]._b = points[a]._b;
@@ -94,21 +93,21 @@ int IntClusterMem(int* cluster, int num_points)
 	}
 }
 
-//Distance
-double calculateDistance(Point point1, Point point2)
-{
-	return sqrt((pow((point1._r - point2._r), 2) + pow((point1._g - point2._g), 2) + pow((point1._b - point2._b), 2) + pow((point1._m - point2._m), 2) + pow((point1._n - point2._n), 2)));
-}
-
-//double calculateDistance(Point point1, Point point2) {
-//	double dr = point1._r - point2._r;
-//	double dg = point1._g - point2._g;
-//	double db = point1._b - point2._b;
-//	double dm = point1._m - point2._m;
-//	double dn = point1._n - point2._n;
-//
-//	return sqrt(dr * dr + dg * dg + db * db + dm * dm + dn * dn);
+////Distance
+//double calculateDistance(Point point1, Point point2)
+//{
+//	return sqrt((pow((point1._r - point2._r), 2) + pow((point1._g - point2._g), 2) + pow((point1._b - point2._b), 2) + pow((point1._m - point2._m), 2) + pow((point1._n - point2._n), 2)));
 //}
+
+double calculateDistance(Point point1, Point point2) {
+	double dr = point1._r - point2._r;
+	double dg = point1._g - point2._g;
+	double db = point1._b - point2._b;
+	double dm = point1._m - point2._m;
+	double dn = point1._n - point2._n;
+
+	return sqrt(dr * dr + dg * dg + db * db + dm * dm + dn * dn);
+}
 
 
 //to calculate which cluster is the point belonging to.
@@ -292,7 +291,7 @@ int chkConvrg(int* before_clusters, int* after_cluster, int num_points, float to
 }
 
 
-int main(int argc, char* argv[])
+int main()
 {
 	int iter = 0;
 	int K;
@@ -314,7 +313,6 @@ int main(int argc, char* argv[])
 	int* formed_clusters;
 	int* before_clusters;
 	int* after_cluster;
-	int thread_no;
 
 	printf("Enter tolerence: ");
 	scanf("%f", &tol);
@@ -322,10 +320,9 @@ int main(int argc, char* argv[])
 	QueryPerformanceFrequency(&frequency);
 	QueryPerformanceCounter(&start);
 
-	thread_no = atoi(argv[3]);
 
 	FILE* ifp;
-	ifp = fopen(argv[1], "r");
+	ifp = fopen("input.txt", "r");
 	readImageSize(ifp, &K, &x, &y);
 	num_points = x * y;
 	points = (Point*)malloc(sizeof(Point) * num_points);
@@ -347,13 +344,12 @@ int main(int argc, char* argv[])
 		iter++;
 		printf("Iteration %d\n", iter);
 
-		omp_set_num_threads(thread_no);
+		omp_set_num_threads(8);
 
 	#pragma omp parallel for default(shared) 
 
 		for (i = 0;i < num_points;i++)
 		{
-
 			after_cluster[i] = pointsCluster(points[i], mean, K);
 		}
 
@@ -379,13 +375,13 @@ int main(int argc, char* argv[])
 	}
 
 
-	FILE* ofp = fopen(argv[2], "w");
+	FILE* ofp = fopen("output.txt", "w");
 
 	for (i = 0;i < K;i++)
-		fprintf(ofp, "%d,%d,%d,%d,%d\n", (int)mean[i]._r, (int)mean[i]._g, (int)mean[i]._b, (int)mean[i]._m, (int)mean[i]._n);
+		fprintf(ofp, "%d,%d,%d,%d,%d\n", (unsigned int)mean[i]._r, (unsigned int)mean[i]._g, (unsigned int)mean[i]._b, (unsigned int)mean[i]._m, (unsigned int)mean[i]._n);
 
 	for (i = 0;i < num_points;i++)
-		fprintf(ofp, "%d,%d,%d,%d,%d,%d\n", (int)points[i]._r, (int)points[i]._g, (int)points[i]._b, (int)points[i]._m, (int)points[i]._n, after_cluster[i] + 1);
+		fprintf(ofp, "%d,%d,%d,%d,%d,%d\n", (unsigned int)points[i]._r, (unsigned int)points[i]._g, (unsigned int)points[i]._b, (unsigned int)points[i]._m, (unsigned int)points[i]._n, after_cluster[i] + 1);
 
 	fclose(ofp);
 
